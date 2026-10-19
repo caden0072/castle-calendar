@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Add your visit to your calendar</title>
+<style>
+  :root { --ink:#1d2733; --muted:#5b6672; --line:#d9dee4; --bg:#f6f4ef; --card:#fff; --brand:#1f4d3a; --brand-ink:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#eef1f4; --muted:#a3adb8; --line:#34404c; --bg:#12171c; --card:#1b232b; --brand:#4f9d7a; --brand-ink:#08130e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:30rem; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.35rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:20px; }
+  .when { font-size:1.25rem; font-weight:650; margin:0; }
+  .where { margin:6px 0 0; color:var(--muted); }
+  .btn { display:block; width:100%; text-align:center; text-decoration:none; font:inherit; font-weight:650; padding:15px 16px; margin:0 0 12px;
+         border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .btn.main { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+  .note { color:var(--muted); font-size:.92rem; margin:4px 0 0; }
+  .hidden { display:none; }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Castle Health &amp; Wellness</h1>
+  <p class="sub" id="sub">Add your visit to your calendar.</p>
+
+  <div class="card" id="visit" hidden>
+    <p class="when" id="when"></p>
+    <p class="where" id="where"></p>
+  </div>
+
+  <div id="buttons" hidden>
+    <a class="btn main" id="apple" href="#" role="button">Apple Calendar (iPhone, iPad, Mac)</a>
+    <a class="btn" id="google" href="#" target="_blank" rel="noopener">Google Calendar</a>
+    <a class="btn" id="outlook" href="#" target="_blank" rel="noopener">Outlook</a>
+    <p class="note" id="applenote">On an iPhone, tap Apple Calendar, then tap Add.</p>
+  </div>
+
+  <div id="bad" hidden>
+    <p>This link looks incomplete. Please call us and we will confirm your time.</p>
+  </div>
+
+  <p class="note">Need to change your visit? <a id="call" href="tel:+19096944200">Call (909) 694-4200</a></p>
+</main>
+
+<script>
+/* Pure helpers first; the page wiring is at the bottom. Nothing leaves this page:
+   the date, time and doctor come from the link and the calendar entry is built here. */
+var CLINIC = {
+  name: 'Castle Health & Wellness',
+  address: '659 E. 15th St. Ste. H, Upland, CA 91786',
+  phone: '(909) 694-4200',
+  minutes: 30,
+  title: 'Pain & Posture Evaluation'
+};
+var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+/** Reads ?d=YYYYMMDD&t=HHMM&p=Dr. Alexa. Returns null when the date or time is not real. */
+function parseVisit(search) {
+  var q = {};
+  String(search || '').replace(/^\?/, '').split('&').forEach(function (kv) {
+    if (!kv) return;
+    var i = kv.indexOf('=');
+    var k = i < 0 ? kv : kv.slice(0, i);
+    var v = i < 0 ? '' : kv.slice(i + 1);
+    try { q[k] = decodeURIComponent(v.replace(/\+/g, ' ')); } catch (e) { q[k] = ''; }
+  });
+  var d = /^(\d{4})(\d{2})(\d{2})$/.exec(q.d || '');
+  var t = /^(\d{2})(\d{2})$/.exec(q.t || '');
+  if (!d || !t) return null;
+  var y = +d[1], mo = +d[2], da = +d[3], h = +t[1], mi = +t[2];
+  var dt = new Date(Date.UTC(y, mo - 1, da, 12));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== da) return null;
+  if (h > 23 || mi > 59) return null;
+  var provider = String(q.p || '').replace(/[^A-Za-z.' -]/g, '').trim().slice(0, 30);
+  return { y: y, mo: mo, d: da, h: h, mi: mi, weekday: dt.getUTCDay(), provider: provider };
+}
+
+function endOf(v) {
+  var total = Math.min(23 * 60 + 59, v.h * 60 + v.mi + CLINIC.minutes);
+  return { h: Math.floor(total / 60), mi: total % 60 };
+}
+function stamp(v, h, mi) { return '' + v.y + pad2(v.mo) + pad2(v.d) + 'T' + pad2(h) + pad2(mi) + '00'; }
+
+function whenLabel(v) {
+  var h12 = v.h % 12 === 0 ? 12 : v.h % 12;
+  return DAYS[v.weekday] + ', ' + MONTHS[v.mo - 1] + ' ' + v.d + ' at ' + h12 + ':' + pad2(v.mi) + ' ' + (v.h >= 12 ? 'PM' : 'AM');
+}
+function eventNotes(v) {
+  return 'Your ' + CLINIC.title + ' at ' + CLINIC.name + (v.provider ? ' with ' + v.provider : '') +
+    '. Questions or need to change it? Call ' + CLINIC.phone + '.';
+}
+
+function icsEscape(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+
+/** An .ics file for the visit, in Los Angeles time, with a reminder an hour before. */
+function buildIcs(v, uidSeed) {
+  var e = endOf(v);
+  var now = new Date();
+  var dtstamp = now.getUTCFullYear() + pad2(now.getUTCMonth() + 1) + pad2(now.getUTCDate()) + 'T' +
+    pad2(now.getUTCHours()) + pad2(now.getUTCMinutes()) + pad2(now.getUTCSeconds()) + 'Z';
+  var lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Castle Health & Wellness//Visit//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VTIMEZONE',
+    'TZID:America/Los_Angeles',
+    'BEGIN:DAYLIGHT',
+    'TZOFFSETFROM:-0800', 'TZOFFSETTO:-0700', 'TZNAME:PDT',
+    'DTSTART:19700308T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+    'END:DAYLIGHT',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:-0700', 'TZOFFSETTO:-0800', 'TZNAME:PST',
+    'DTSTART:19701101T020000', 'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    'UID:' + stamp(v, v.h, v.mi) + '-' + (uidSeed || 'visit') + '@castlechiropractic.org',
+    'DTSTAMP:' + dtstamp,
+    'DTSTART;TZID=America/Los_Angeles:' + stamp(v, v.h, v.mi),
+    'DTEND;TZID=America/Los_Angeles:' + stamp(v, e.h, e.mi),
+    'SUMMARY:' + icsEscape(CLINIC.name + ' - ' + CLINIC.title),
+    'LOCATION:' + icsEscape(CLINIC.address),
+    'DESCRIPTION:' + icsEscape(eventNotes(v)),
+    'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', 'DESCRIPTION:Visit at Castle Health & Wellness in one hour', 'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ];
+  return lines.map(fold).join('\r\n') + '\r\n';
+}
+
+/** Long lines are folded at 75 characters, as the calendar format asks. */
+function fold(line) {
+  var out = '';
+  while (line.length > 75) { out += line.slice(0, 75) + '\r\n '; line = line.slice(75); }
+  return out + line;
+}
+
+function googleUrl(v) {
+  var e = endOf(v);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+    '&text=' + encodeURIComponent(CLINIC.name + ' - ' + CLINIC.title) +
+    '&dates=' + stamp(v, v.h, v.mi) + '/' + stamp(v, e.h, e.mi) +
+    '&ctz=America/Los_Angeles' +
+    '&location=' + encodeURIComponent(CLINIC.address) +
+    '&details=' + encodeURIComponent(eventNotes(v));
+}
+
+function outlookUrl(v) {
+  var e = endOf(v);
+  var iso = function (h, mi) { return v.y + '-' + pad2(v.mo) + '-' + pad2(v.d) + 'T' + pad2(h) + ':' + pad2(mi) + ':00'; };
+  return 'https://outlook.live.com/calendar/0/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent' +
+    '&subject=' + encodeURIComponent(CLINIC.name + ' - ' + CLINIC.title) +
+    '&startdt=' + encodeURIComponent(iso(v.h, v.mi)) +
+    '&enddt=' + encodeURIComponent(iso(e.h, e.mi)) +
+    '&location=' + encodeURIComponent(CLINIC.address) +
+    '&body=' + encodeURIComponent(eventNotes(v));
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { parseVisit: parseVisit, buildIcs: buildIcs, googleUrl: googleUrl, outlookUrl: outlookUrl, whenLabel: whenLabel };
+}
+
+/* ---- page wiring (browser only) ---- */
+if (typeof document !== 'undefined') {
+  (function () {
+    var $ = function (id) { return document.getElementById(id); };
+    var v = parseVisit(window.location.search);
+    if (!v) { $('bad').hidden = false; return; }
+    $('visit').hidden = false;
+    $('buttons').hidden = false;
+    $('when').textContent = whenLabel(v);
+    $('where').textContent = (v.provider ? 'With ' + v.provider + '. ' : '') + CLINIC.name + ', ' + CLINIC.address;
+    $('google').href = googleUrl(v);
+    $('outlook').href = outlookUrl(v);
+
+    var ics = buildIcs(v, 'castle');
+    var name = 'castle-visit.ics';
+    // iPhone Safari offers "Add to Calendar" for a text/calendar link, so a plain data link
+    // (no script needed at tap time) is the most dependable choice.
+    var apple = $('apple');
+    apple.setAttribute('download', name);
+    apple.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+  })();
+}
+</script>
+</body>
+</html>
